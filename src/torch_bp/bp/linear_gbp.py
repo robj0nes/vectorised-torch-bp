@@ -11,7 +11,6 @@ from torch_bp.graph.factors.linear_gaussian_factors import NaryGaussianLinearFac
 from torch_bp.bp import BeliefPropagation
 from typing import Iterable, Union, Tuple
 from .bp import BeliefPropagation
-
 import warnings
 
 
@@ -30,10 +29,11 @@ class LinearGaussianBP(BeliefPropagation):
         hardware architectures may not be compatible with torch.float64 operations (meaning users need to solve
         the problem themselves)
     """
+
     def __init__(self,
                  node_means: torch.Tensor, node_covars: torch.Tensor,
                  factor_graph: FactorGraph,
-                 tensor_kwargs= {'device': 'cpu', 'dtype': torch.float64}) -> None:
+                 tensor_kwargs={'device': 'cpu', 'dtype': torch.float64}) -> None:
         """
         Inputs:
         - node_means : (N,D) tensor, mean of nodes
@@ -45,14 +45,16 @@ class LinearGaussianBP(BeliefPropagation):
         # input checks
         mean_batch_shape = node_means.shape[:-1]
         covar_batch_shape = node_covars.shape[:-2]
-        assert node_means.shape[-1] == node_covars.shape[-1], "Node mean data size (...,x_dim) needs to match covar size (...,x_dim,x_dim)"
+        assert node_means.shape[-1] == node_covars.shape[
+            -1], "Node mean data size (...,x_dim) needs to match covar size (...,x_dim,x_dim)"
         assert node_covars.shape[-1] == node_covars.shape[-2], "Node covariance needs to be square (...,x_dim,x_dim)"
         if len(covar_batch_shape) > 0:
             assert mean_batch_shape == covar_batch_shape, "Node covariance batch shape does not match node mean shape"
         else:
             node_covars = node_covars.expand(*mean_batch_shape, *node_covars.shape)
         if ('dtype' not in tensor_kwargs) or (tensor_kwargs['dtype'] != torch.float64):
-            warnings.warn("Defined 'dtype' is not torch.float64. Note that inaccuracies will accumulate from inversion operations!")
+            warnings.warn(
+                "Defined 'dtype' is not torch.float64. Note that inaccuracies will accumulate from inversion operations!")
         # variable init
         super().__init__(tensor_kwargs)
         self.factor_graph = factor_graph
@@ -61,12 +63,12 @@ class LinearGaussianBP(BeliefPropagation):
         self.tensor_kwargs = tensor_kwargs
         # create databases to replace the one in BP
         self._precomputed_factor_db = None
-        self.msg_factor_to_node_db = {(factor_id, node_id) : None
+        self.msg_factor_to_node_db = {(factor_id, node_id): None
                                       for factor_id, factor_cluster in self.factor_graph.factor_clusters.items()
                                       for node_id in factor_cluster.neighbours}
 
     def solve(self, num_iters: int,
-              nodes_to_solve: Union[None,int,Iterable[int]] = None) -> torch.Tensor:
+              nodes_to_solve: Union[None, int, Iterable[int]] = None) -> torch.Tensor:
         """
         Solve non loopy linear gaussian BP, only 1 message passing iteration is required.
 
@@ -120,7 +122,7 @@ class LinearGaussianBP(BeliefPropagation):
                                       for node_id, node_cluster in self.factor_graph.node_clusters.items()
                                       for factor_id, factor_cluster in node_cluster.factor_clusters.items()}
 
-    def update_beliefs(self, pass_messages= False) -> None:
+    def update_beliefs(self, pass_messages=False) -> None:
         """
         Updates the belief of all nodes using passed message
         - Inputs:
@@ -129,32 +131,38 @@ class LinearGaussianBP(BeliefPropagation):
         if pass_messages:
             self.pass_messages()
 
-        node_etas = torch.zeros_like(self.node_means).double() # required for accurate inversion
+        node_etas = torch.zeros_like(self.node_means).double()  # required for accurate inversion
         node_lams = torch.zeros_like(self.node_covars).double()
         for node_id, node_cluster in self.factor_graph.node_clusters.items():
             msg_etas, msg_lambdas = zip(*[self.msg_factor_to_node_db[factor_id, node_id]
                                           for factor_id in node_cluster.factor_clusters])
-            node_etas[node_id] = torch.stack(msg_etas).sum(dim=0)
-            node_lams[node_id] = torch.stack(msg_lambdas).sum(dim=0)
+            node_etas[:, node_id] = torch.stack(msg_etas).sum(dim=0)
+            node_lams[:, node_id] = torch.stack(msg_lambdas).sum(dim=0)
 
         self.node_covars = torch.linalg.solve(node_lams, torch.eye(node_lams.shape[-1]).to(node_lams))
-        self.node_means = (self.node_covars @ node_etas[...,None])[...,0]
+        self.node_means = (self.node_covars @ node_etas[..., None])[..., 0]
 
     def _precompute_factors(self) -> None:
         """
         Precomputes factors instead of calculating them during message passing.
         Stores precomputed factors in the database for quick access.
         """
-        self._precomputed_factor_db = {factor_id : factor_cluster.factor(*[(self.node_means[i], self.node_covars[i])
-                                                                          for i in factor_cluster.neighbours])
-                                      for factor_id, factor_cluster in self.factor_graph.factor_clusters.items()}
+        # for factor_id, factor_cluster in self.factor_graph.factor_clusters.items():
+        #     for i in factor_cluster.neighbours:
+        #         test = factor_cluster.factor(*[(self.node_means[:, i], self.node_covars[:, i]) for i in factor_cluster.neighbours])
+        #         print()
+
+        self._precomputed_factor_db = {
+            factor_id: factor_cluster.factor(*[(self.node_means[:, i], self.node_covars[:, i])
+                                               for i in factor_cluster.neighbours])
+            for factor_id, factor_cluster in self.factor_graph.factor_clusters.items()}
 
     def _get_precomputed_factor(self, factor_id: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Method to fetch precomputed factors
         """
         f_eta, f_lambda = self._precomputed_factor_db[factor_id]
-        return f_eta.clone(), f_lambda.clone() # cloned to prevent unintentional edits to original
+        return f_eta.clone(), f_lambda.clone()  # cloned to prevent unintentional edits to original
 
     def _compute_msg_from_factor(self, source_factor_cluster: FactorCluster, target_node_id: int
                                  ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -170,30 +178,48 @@ class LinearGaussianBP(BeliefPropagation):
         # special case: target node is only node connected to source factor
         if len(source_factor_cluster.neighbours) == 1:
             return f_eta, f_lambda
+
         # get messages from all nodes connected to source factor except for target node using inner function
         # for target node assume msg are zeros (helps with shaping later)
         msgs = [self._inner_compute_msg_from_node(node_id, source_factor_cluster.id) if node_id != target_node_id
-                else (torch.zeros_like(self.node_means[target_node_id]), torch.zeros_like(self.node_covars[target_node_id]))
+                else (
+            torch.zeros_like(self.node_means[:, target_node_id]), torch.zeros_like(self.node_covars[:, target_node_id]))
                 for node_id in source_factor_cluster.neighbours]
+
         # combine joint probabilities
         msg_etas, msg_lambdas = zip(*msgs)
-        f_eta += torch.cat(msg_etas)
-        f_lambda += torch.block_diag(*msg_lambdas)
+        f_eta += torch.cat(msg_etas, dim=-1)
+
+        batch_dim = msg_lambdas[0].shape[0]
+        # Note: We can't build block_diags in a vectorised way with torch. Need to manually produce them :(
+        batched_msg_lambdas = []
+        for bd in range(batch_dim):
+            batched_msg_lambdas.append(torch.block_diag(*[m[bd] for m in msg_lambdas]))
+        batched_msg_lambdas = torch.stack(batched_msg_lambdas)
+        f_lambda += batched_msg_lambdas
+
         # marginalize
         # shape finding
         target_node_nbr_ind = source_factor_cluster.neighbours.index(target_node_id)
-        front = sum([self.node_means[i].shape[-1] for i in range(target_node_nbr_ind)])
-        middle = self.node_means[target_node_nbr_ind].shape[-1]
-        back = sum(self.node_means[i].shape[-1] for i in range(target_node_nbr_ind+1, len(source_factor_cluster.neighbours)))
+        front = sum([self.node_means[:, i].shape[-1] for i in range(target_node_nbr_ind)])
+        middle = self.node_means[:, target_node_nbr_ind].shape[-1]
+        back = sum(
+            self.node_means[:, i].shape[-1] for i in range(target_node_nbr_ind + 1, len(source_factor_cluster.neighbours)))
         x_dim = front + middle + back
+
         # remapping
-        R_a = torch.eye(x_dim, **self.tensor_kwargs)[[i for i in range(front, front+middle)]]
-        R_b = torch.eye(x_dim, **self.tensor_kwargs)[[i for i in range(front)] + [i for i in range(front+middle, x_dim)]]
-        eta_a, eta_b = R_a @ f_eta, R_b @ f_eta
-        lambda_aa, lambda_bb = R_a @ f_lambda @ R_a.T, R_b @ f_lambda @ R_b.T
-        lambda_ab, lambda_ba = R_a @ f_lambda @ R_b.T, R_b @ f_lambda @ R_a.T
+        R_a = torch.eye(x_dim, **self.tensor_kwargs)[
+            [i for i in range(front, front + middle)]].repeat((batch_dim, 1, 1))
+        R_b = torch.eye(x_dim, **self.tensor_kwargs)[
+            [i for i in range(front)] + [i for i in range(front + middle, x_dim)]].repeat((batch_dim, 1, 1))
+        eta_a, eta_b = (R_a @ f_eta.unsqueeze(-1)).squeeze(-1), (R_b @ f_eta.unsqueeze(-1)).squeeze(-1)
+        lambda_aa, lambda_bb = R_a @ f_lambda @ R_a.transpose(1, 2), R_b @ f_lambda @ R_b.transpose(1, 2)
+        lambda_ab, lambda_ba = R_a @ f_lambda @ R_b.transpose(1, 2), R_b @ f_lambda @ R_a.transpose(1, 2)
+
         # marginalization calculation
-        msg_eta = eta_a - lambda_ab @ torch.linalg.solve(lambda_bb.double(), eta_b.double()).to(f_eta)
+        lin = torch.linalg.solve(lambda_bb.double(), eta_b.double())
+        sub_term = (lambda_ab @ lin.to(f_eta).unsqueeze(-1)).squeeze(-1)
+        msg_eta = eta_a - sub_term
         msg_lambda = lambda_aa - lambda_ab @ torch.linalg.solve(lambda_bb.double(), lambda_ba.double()).to(f_lambda)
 
         return msg_eta, msg_lambda
@@ -211,16 +237,18 @@ class LinearGaussianBP(BeliefPropagation):
         - Implements: msg_{xk->j}(fj) = aggregate_mult_{f for n(xk) \ fj}(msg_{f->k}(xk))
         """
         node_cluster = self.factor_graph.node_clusters[source_node_id]
+
         # special case: target factor is only factor connected to source node
         if len(node_cluster.factor_clusters) == 1:
-            return torch.zeros_like(self.node_means[source_node_id]), torch.zeros_like(self.node_covars[source_node_id])
+            return torch.zeros_like(self.node_means[:, source_node_id]), torch.zeros_like(self.node_covars[:, source_node_id])
+
         # get messages from all factors connected to source node except for target factor using inner function
         msgs = [self._inner_compute_msg_from_factor(factor_cluster, source_node_id)
                 for factor_id, factor_cluster in node_cluster.factor_clusters.items()
                 if factor_id != target_factor_id]
+
         # gaussian product cannonical
         msg_eta, msg_lambda = [torch.stack(msg_i).sum(dim=0) for msg_i in zip(*msgs)]
-
         return msg_eta, msg_lambda
 
     def _inner_compute_msg_from_factor(self, source_factor_cluster: FactorCluster, target_node_id: int
@@ -251,13 +279,15 @@ class LoopyLinearGaussianBP(LinearGaussianBP):
     Loopy version of LinearGaussianBP,
     assumes that messages already exists and improve solution using message passing
     """
+
     def __init__(self, node_means: torch.Tensor, node_covars: torch.Tensor, factor_graph: FactorGraph,
-                 init_covar= 1e5,
-                 tensor_kwargs= {'device': 'cpu', 'dtype': torch.float64}) -> None:
+                 init_covar=1e5,
+                 tensor_kwargs={'device': 'cpu', 'dtype': torch.float64},
+                 batch_dim=1) -> None:
         """
         Inputs:
-        - node_means : (N,D) tensor, mean of nodes
-        - node_covariances : (DxD) or (N,DxD) tensor, covariances of nodes
+        - node_means : (Batch_dim, N,D) tensor, mean of nodes
+        - node_covariances : (Batch_dim, DxD) or (Batch_dim, N,DxD) tensor, covariances of nodes
         - factor_graph : FactorGraph, graph with defined node and factor clusters
         - init_covar : float, a high value used for resetting messages such that
             new_covar = init_covar * eye
@@ -266,16 +296,17 @@ class LoopyLinearGaussianBP(LinearGaussianBP):
         - assume that node data sizes are the same
         """
         super().__init__(node_means, node_covars, factor_graph, tensor_kwargs)
-        self._inv_covar = 1 / init_covar # used to generate inv(init_covar * torch.eye(x_dim)) => 1/init_covar * torch.eye(x_dim)
-        # create a temp message database for messages from nodes to factor
-        self.msg_node_to_factor_db = {(node_id, factor_id) : None
+        # Generate inv(init_covar * torch.eye(x_dim)) => 1/init_covar * torch.eye(x_dim)
+        self._inv_covar = 1 / init_covar
+        # Create a temp message database for messages from nodes to factor
+        self.msg_node_to_factor_db = {(node_id, factor_id): None
                                       for node_id, node_cluster in self.factor_graph.node_clusters.items()
                                       for factor_id in node_cluster.factor_clusters}
-        # init messages to a defined start value
+        # Init messages to a defined start value
         self.reset_msgs()
 
     def solve(self, num_iters: int, msg_pass_per_iter: int,
-              nodes_to_solve: Union[None,int,Iterable[int]] = None) -> torch.Tensor:
+              nodes_to_solve: Union[None, int, Iterable[int]] = None) -> torch.Tensor:
         """
         Solve loopy linear gaussian BP, update linear factors once every iter (each iter containing
         msg_pass_per_iter message passing steps)
@@ -286,8 +317,8 @@ class LoopyLinearGaussianBP(LinearGaussianBP):
         - nodes_to_solve: None | int | Iterable[int], ids of nodes user is interested in solving,
             if None solve all nodes
         Returns:
-        - mean: (N,dim) tensor, mean of the request nodes
-        - covar: (N,dim,dim) tensor, covars of the request nodes
+        - mean: (batch_dim, N, dim) tensor, mean of the request nodes
+        - covar: (batch_dim, N, dim, dim) tensor, covars of the request nodes
         """
         for _ in range(num_iters):
             for _ in range(msg_pass_per_iter):
@@ -308,16 +339,20 @@ class LoopyLinearGaussianBP(LinearGaussianBP):
         """
         Instead of setting messages to None, initialize them to a reasonable initial seed value.
         In this case assume they are infinitely large covariance gaussians about means of zeros,
-        hence eta is still zero and lambda are inv(covaraince)
+        hence eta is still zero and lambda are inv(covariance)
         """
         for factor_id, node_id in self.msg_factor_to_node_db:
-            msg_dim = self.node_means[node_id].shape[-1]
-            self.msg_factor_to_node_db[(factor_id, node_id)] = (torch.zeros(msg_dim, **self.tensor_kwargs),
-                                                                self._inv_covar * torch.eye(msg_dim, **self.tensor_kwargs))
+            msg_dim = self.node_means[:, node_id].shape[-1]
+            batch_dim = self.node_means[:, node_id].shape[0]
+            self.msg_factor_to_node_db[(factor_id, node_id)] = \
+                (torch.zeros((batch_dim, msg_dim), **self.tensor_kwargs),
+                 self._inv_covar * torch.eye(msg_dim, **self.tensor_kwargs).repeat(batch_dim, 1, 1))
         for node_id, factor_id in self.msg_node_to_factor_db:
-            msg_dim = self.node_means[node_id].shape[-1]
-            self.msg_node_to_factor_db[(node_id, factor_id)] = (torch.zeros(msg_dim, **self.tensor_kwargs),
-                                                                self._inv_covar * torch.eye(msg_dim, **self.tensor_kwargs))
+            msg_dim = self.node_means[:, node_id].shape[-1]
+            batch_dim = self.node_means[:, node_id].shape[0]
+            self.msg_node_to_factor_db[(node_id, factor_id)] = \
+                (torch.zeros((batch_dim, msg_dim), **self.tensor_kwargs),
+                 self._inv_covar * torch.eye(msg_dim, **self.tensor_kwargs).repeat(batch_dim, 1, 1))
 
     def pass_messages(self):
         """

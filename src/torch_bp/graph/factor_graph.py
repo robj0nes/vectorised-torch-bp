@@ -46,7 +46,7 @@ class FactorGraph(object):
                  factor_neighbours: Iterable[Iterable[int]]) -> None:
         """
         Input:
-        - num_nodes : number of nodes in the graph, implcitly indexed from 0~(N-1)
+        - num_nodes : number of nodes in the graph, implicitly indexed from 0~(N-1)
         - factors : all factors
         - factor_neighbours : neighbour of each factor, represented as an iterable of node index
         """

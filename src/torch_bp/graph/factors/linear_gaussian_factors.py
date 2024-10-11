@@ -32,10 +32,11 @@ class LinearizedGaussianEnergy(object):
             however in actuality the h may not actually be linear, hence we have to relinearize about the new
             operating point each time x changes
     """
-    def __init__(self, grads_w_h : Callable,
-                 z : torch.Tensor, sigma : torch.Tensor,
-                 x_0 : torch.Tensor,
-                 linear : bool) -> None:
+
+    def __init__(self, grads_w_h: Callable,
+                 z: torch.Tensor, sigma: torch.Tensor,
+                 x_0: torch.Tensor,
+                 linear: bool) -> None:
         """
         Inputs:
         - h : Callable, function which evaluates h(x)
@@ -53,7 +54,7 @@ class LinearizedGaussianEnergy(object):
         self._call_fn = self._linear_call if linear else self._non_linear_call
         self._update_internals = self._update_internals_linear if linear else self._update_internals_nonlinear
 
-    def __call__(self, x_0 : torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __call__(self, x_0: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Given linearization point about an x value, calculate the resultant energy function
         - Inputs:
@@ -64,7 +65,7 @@ class LinearizedGaussianEnergy(object):
         """
         return self._call_fn(x_0)
 
-    def update_bias(self, new_z: torch.Tensor, new_sigma: Union[None, torch.Tensor]= None):
+    def update_bias(self, new_z: torch.Tensor, new_sigma: Union[None, torch.Tensor] = None):
         """
         Updates the bias and sigma of the energy function
         """
@@ -73,22 +74,34 @@ class LinearizedGaussianEnergy(object):
             self._lambda = torch.linalg.solve(new_sigma, torch.eye(new_sigma.shape[-1]).to(new_sigma))
         self._update_internals()
 
-    def _linearize_energy_fn(self, x_0 : torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _linearize_energy_fn(self, x_0: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Method to linearizes the energy function about a new point
         - Inputs:
-            - x_0 : (x_in_0_dim+x_in_1_dim+... x_in_N_dim) tensor
+            - x_0 : (batch_dim, x_in_0_dim+x_in_1_dim+... x_in_N_dim) tensor
         - Returns:
-            - energy_eta : (x_in_0_dim+x_in_1_dim+... x_in_N_dim) tensor
-            - energy_lambda : (x_in_0_dim+x_in_1_dim+... x_in_N_dim, x_in_0_dim+x_in_1_dim+... x_in_N_dim) tensor
+            - energy_eta : (batch_dim, x_in_0_dim+x_in_1_dim+... x_in_N_dim) tensor
+            - energy_lambda : (batch_dim, x_in_0_dim+x_in_1_dim+... x_in_N_dim, x_in_0_dim+x_in_1_dim+... x_in_N_dim) tensor
         """
-        jac_h_x0, h_x0 = self._grads_w_h(x_0)
-        deviation = jac_h_x0 @ x_0 + self._z - h_x0
-        energy_eta = jac_h_x0.transpose(-2,-1) @ self._lambda @ deviation
-        energy_lambda = jac_h_x0.transpose(-2,-1) @ self._lambda @ jac_h_x0
+        # Compute gradients and values at x_0
+        jac_h_x0, h_x0 = self._grads_w_h(x_0)  # jac_h_x0: [batch_dim, 2, 2], h_x0: [batch_dim, 2]
+
+        # Calculate the deviation vector for each batch
+        deviation = (jac_h_x0 @ x_0.unsqueeze(-1) +
+                     self._z.unsqueeze(-1) - h_x0.unsqueeze(-1))   # deviation: [batch_dim, 2, 1]
+
+        # Compute energy based on eta
+        energy_eta = jac_h_x0.transpose(-2, -1) @ self._lambda @ deviation  # energy_eta: [batch_dim, 2, 1]
+
+        # Compute energy based on lambda
+        energy_lambda = jac_h_x0.transpose(-2, -1) @ self._lambda @ jac_h_x0  # energy_lambda: [batch_dim, 2, 2]
+
+        # Reshape
+        energy_eta = energy_eta.squeeze(-1)  # energy_eta: [batch_dim, 2]
+
         return energy_eta, energy_lambda
 
-    def _linear_call(self, x_0 : torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _linear_call(self, x_0: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Function to call if h is linear
         - Inputs:
@@ -99,14 +112,14 @@ class LinearizedGaussianEnergy(object):
         """
         return self._energy_eta.clone(), self._energy_lambda.clone()
 
-    def _non_linear_call(self, x_0 : torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _non_linear_call(self, x_0: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Function to call if h is non-linear
         - Inputs:
-            - x_0 : (x_in_0_dim+x_in_1_dim+... x_in_N_dim) tensor, linearization point
+            - x_0 : (batch_dim, x_in_0_dim+x_in_1_dim+... x_in_N_dim) tensor, linearization point
         - Returns:
-            - energy_eta : (x_in_0_dim+x_in_1_dim+... x_in_N_dim) tensor
-            - energy_lambda : (x_in_0_dim+x_in_1_dim+... x_in_N_dim, x_in_0_dim+x_in_1_dim+... x_in_N_dim) tensor
+            - energy_eta : (batch_dim, x_in_0_dim+x_in_1_dim+... x_in_N_dim) tensor
+            - energy_lambda : (batch_dim, x_in_0_dim+x_in_1_dim+... x_in_N_dim, x_in_0_dim+x_in_1_dim+... x_in_N_dim) tensor
         """
         return self._linearize_energy_fn(x_0)
 
@@ -127,10 +140,11 @@ class NaryGaussianLinearFactor(object):
     """
     Generic N-ary factor definition for factor to N nodes that follows factor call signatures
     """
-    def __init__(self, grads_w_h : Callable,
-                 z : torch.Tensor, sigma : torch.Tensor,
-                 x_0 : torch.Tensor,
-                 linear : bool,
+
+    def __init__(self, grads_w_h: Callable,
+                 z: torch.Tensor, sigma: torch.Tensor,
+                 x_0: torch.Tensor,
+                 linear: bool,
                  alpha=1) -> None:
         """
         Inputs:
@@ -152,14 +166,15 @@ class NaryGaussianLinearFactor(object):
         Inputs:
         - args : ((eta tensor, lambda tensor), ...) all attached node Gaussians
         Returns:
-        - eta : (x_dim,) tensor
-        - lambda : (x_dim,x_dim) tensor
+        - eta : (batch_dim, x_dim,) tensor
+        - lambda : (batch_dim, x_dim,x_dim) tensor
         """
         means, _ = [x for x in zip(*args)]
-        energy_eta, energy_lambda = self.energy_fn(torch.cat(means)) # set linearization point to be about mean
+        test = torch.cat(means, dim=-1)
+        energy_eta, energy_lambda = self.energy_fn(torch.cat(means, dim=-1))  # set linearization point to be about mean
         return self.alpha * energy_eta, self.alpha * energy_lambda
 
-    def update_bias(self, new_z: torch.Tensor, new_sigma: Union[None, torch.Tensor]= None):
+    def update_bias(self, new_z: torch.Tensor, new_sigma: Union[None, torch.Tensor] = None):
         """
         Updates the bias and sigma of the energy function
         """
@@ -170,10 +185,11 @@ class UnaryGaussianLinearFactor(UnaryFactor):
     """
     Wrapper to bridge NaryGaussianLinearFactor to UnaryFactor
     """
-    def __init__(self, grads_w_h : Callable,
-                 z : torch.Tensor, sigma : torch.Tensor,
-                 x_0 : torch.Tensor,
-                 linear : bool,
+
+    def __init__(self, grads_w_h: Callable,
+                 z: torch.Tensor, sigma: torch.Tensor,
+                 x_0: torch.Tensor,
+                 linear: bool,
                  alpha=1) -> None:
         """
         Inputs:
@@ -198,7 +214,7 @@ class UnaryGaussianLinearFactor(UnaryFactor):
         energy_eta, energy_lambda = self.nary_factor(x)
         return self.alpha * energy_eta, self.alpha * energy_lambda
 
-    def update_bias(self, new_z: torch.Tensor, new_sigma: Union[None, torch.Tensor]= None):
+    def update_bias(self, new_z: torch.Tensor, new_sigma: Union[None, torch.Tensor] = None):
         """
         Updates the bias and sigma of the energy function
         """
@@ -209,10 +225,11 @@ class PairwiseGaussianLinearFactor(PairwiseFactor):
     """
     Wrapper to bridge NaryGaussianLinearFactor to PairwiseFactor
     """
-    def __init__(self, grads_w_h : Callable,
-                 z : torch.Tensor, sigma : torch.Tensor,
-                 x_0 : torch.Tensor,
-                 linear : bool,
+
+    def __init__(self, grads_w_h: Callable,
+                 z: torch.Tensor, sigma: torch.Tensor,
+                 x_0: torch.Tensor,
+                 linear: bool,
                  alpha=1) -> None:
         """
         Inputs:
@@ -238,7 +255,7 @@ class PairwiseGaussianLinearFactor(PairwiseFactor):
         energy_eta, energy_lambda = self.nary_factor(x_s, x_t)
         return self.alpha * energy_eta, self.alpha * energy_lambda
 
-    def update_bias(self, new_z: torch.Tensor, new_sigma: Union[None, torch.Tensor]= None):
+    def update_bias(self, new_z: torch.Tensor, new_sigma: Union[None, torch.Tensor] = None):
         """
         Updates the bias and sigma of the energy function
         """

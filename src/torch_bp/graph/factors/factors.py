@@ -10,7 +10,7 @@ from torch_bp.distributions.distances import kernel_mmd
 
 class UnaryFactor(object):
     """
-    Defaul UnaryFactor class,
+    Default UnaryFactor class,
     implements a trivial factor that returns 0 for now
     """
     def __init__(self, alpha: Real = 1) -> None:
@@ -76,7 +76,7 @@ class DistancePairwiseFactor(PairwiseFactor):
 
 class KernelMMDFactor(PairwiseFactor):
     """
-    Factor where the log_likelihood is equvilant to the MMD between x_s and x_t
+    Factor where the log_likelihood is equivalent to the MMD between x_s and x_t
 
     E = -MMD
     """
