@@ -1,3 +1,6 @@
+# Forked Note: Vectorised Torch BP
+This a fork of the below repository, with a vectorised extension of (currently only) the Gaussian BP algorithm. 
+
 # PyTorch Belief Propagation
 
 PyTorch implementation of Belief Propagation (BP) algorithms. This code accompanies the paper *Stein variational belief propagation for multi-robot coordination*. Please [cite us](#citation) if you use this code for your research.
