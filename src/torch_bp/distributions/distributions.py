@@ -47,14 +47,14 @@ class Gaussian(Distribution):
         self.mu = self.mu.to(**self.params)
         self.sigma = self.sigma.to(**self.params)
 
-        # self.mu = self.mu.view(-1)  # Note: This doesn't seem necessary
+        # self.mu = self.mu.view(-1)  # Note: This causes issues with vectorisation and doesn't seem necessary
         self.dim = self.mu.size(-1)
 
         # Make sure sizes are correct.
         assert self.dim > 0, "Gaussian params must have at least one dimension. dim: {}".format(self.dim)
 
         # Make sure covariance is symmetric and positive semi-definite.
-        # self.sigma = self.sigma.view(self.dim, self.dim)  # Note: This doesn't seem necessary
+        # self.sigma = self.sigma.view(self.dim, self.dim)  # Note: This causes issues with vectorisation doesn't seem necessary
         assert torch.allclose(self.sigma, self.sigma.mT), "Covariance should be symmetric."
         assert torch.all(torch.linalg.eigvals(self.sigma).real >= 0), "Covariance should be positive semi-definite."
 

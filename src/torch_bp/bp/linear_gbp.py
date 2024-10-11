@@ -147,11 +147,6 @@ class LinearGaussianBP(BeliefPropagation):
         Precomputes factors instead of calculating them during message passing.
         Stores precomputed factors in the database for quick access.
         """
-        # for factor_id, factor_cluster in self.factor_graph.factor_clusters.items():
-        #     for i in factor_cluster.neighbours:
-        #         test = factor_cluster.factor(*[(self.node_means[:, i], self.node_covars[:, i]) for i in factor_cluster.neighbours])
-        #         print()
-
         self._precomputed_factor_db = {
             factor_id: factor_cluster.factor(*[(self.node_means[:, i], self.node_covars[:, i])
                                                for i in factor_cluster.neighbours])
@@ -170,8 +165,8 @@ class LinearGaussianBP(BeliefPropagation):
         Method to calculate the message from factor to a node,
         msg_{fk->}
         - Returns:
-            - message eta : (x_dim) tensor, inverse mean of gaussian variable or zeros
-            - message lambda : (x_dim,x_dim) tensor, information matrix of gaussian variable or zeros
+            - message eta : (batch_dim, x_dim) tensor, inverse mean of gaussian variable or zeros
+            - message lambda : (batch_dim, x_dim,x_dim) tensor, information matrix of gaussian variable or zeros
         """
         # fetch precomputed factor
         f_eta, f_lambda = self._get_precomputed_factor(source_factor_cluster.id)
@@ -207,7 +202,8 @@ class LinearGaussianBP(BeliefPropagation):
             self.node_means[:, i].shape[-1] for i in range(target_node_nbr_ind + 1, len(source_factor_cluster.neighbours)))
         x_dim = front + middle + back
 
-        # remapping
+        # remapping.
+        # Note: We need to do some reshaping fun to make sure the batched matrix multiplications work correctly
         R_a = torch.eye(x_dim, **self.tensor_kwargs)[
             [i for i in range(front, front + middle)]].repeat((batch_dim, 1, 1))
         R_b = torch.eye(x_dim, **self.tensor_kwargs)[
@@ -232,8 +228,8 @@ class LinearGaussianBP(BeliefPropagation):
         - Input:
             - factor_graph : FactorGraph, used for extracing other connected factors and nodes
         - Returns:
-            - message_eta : (x_dim,) tensor, inverse mean of gaussian variable or zeros
-            - message_lambda : (x_dim,x_dim) tensor, information matrix of gaussian variable or zeros
+            - message_eta : (batch_dim, x_dim) tensor, inverse mean of gaussian variable or zeros
+            - message_lambda : (batch_dim, x_dim,x_dim) tensor, information matrix of gaussian variable or zeros
         - Implements: msg_{xk->j}(fj) = aggregate_mult_{f for n(xk) \ fj}(msg_{f->k}(xk))
         """
         node_cluster = self.factor_graph.node_clusters[source_node_id]
@@ -286,8 +282,8 @@ class LoopyLinearGaussianBP(LinearGaussianBP):
                  batch_dim=1) -> None:
         """
         Inputs:
-        - node_means : (Batch_dim, N,D) tensor, mean of nodes
-        - node_covariances : (Batch_dim, DxD) or (Batch_dim, N,DxD) tensor, covariances of nodes
+        - node_means : (batch_dim, N, D) tensor, mean of nodes
+        - node_covariances : (batch_dim, DxD) or (batch_dim, N, DxD) tensor, covariances of nodes
         - factor_graph : FactorGraph, graph with defined node and factor clusters
         - init_covar : float, a high value used for resetting messages such that
             new_covar = init_covar * eye

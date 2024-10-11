@@ -83,21 +83,13 @@ class LinearizedGaussianEnergy(object):
             - energy_eta : (batch_dim, x_in_0_dim+x_in_1_dim+... x_in_N_dim) tensor
             - energy_lambda : (batch_dim, x_in_0_dim+x_in_1_dim+... x_in_N_dim, x_in_0_dim+x_in_1_dim+... x_in_N_dim) tensor
         """
+        # Note: Need to do some reshaping for correct vectorised matrix multiplication.
         # Compute gradients and values at x_0
-        jac_h_x0, h_x0 = self._grads_w_h(x_0)  # jac_h_x0: [batch_dim, 2, 2], h_x0: [batch_dim, 2]
-
-        # Calculate the deviation vector for each batch
+        jac_h_x0, h_x0 = self._grads_w_h(x_0)
         deviation = (jac_h_x0 @ x_0.unsqueeze(-1) +
-                     self._z.unsqueeze(-1) - h_x0.unsqueeze(-1))   # deviation: [batch_dim, 2, 1]
-
-        # Compute energy based on eta
-        energy_eta = jac_h_x0.transpose(-2, -1) @ self._lambda @ deviation  # energy_eta: [batch_dim, 2, 1]
-
-        # Compute energy based on lambda
-        energy_lambda = jac_h_x0.transpose(-2, -1) @ self._lambda @ jac_h_x0  # energy_lambda: [batch_dim, 2, 2]
-
-        # Reshape
-        energy_eta = energy_eta.squeeze(-1)  # energy_eta: [batch_dim, 2]
+                     self._z.unsqueeze(-1) - h_x0.unsqueeze(-1))
+        energy_eta = (jac_h_x0.transpose(-2, -1) @ self._lambda @ deviation).squeeze(-1)
+        energy_lambda = jac_h_x0.transpose(-2, -1) @ self._lambda @ jac_h_x0
 
         return energy_eta, energy_lambda
 
@@ -170,7 +162,6 @@ class NaryGaussianLinearFactor(object):
         - lambda : (batch_dim, x_dim,x_dim) tensor
         """
         means, _ = [x for x in zip(*args)]
-        test = torch.cat(means, dim=-1)
         energy_eta, energy_lambda = self.energy_fn(torch.cat(means, dim=-1))  # set linearization point to be about mean
         return self.alpha * energy_eta, self.alpha * energy_lambda
 
