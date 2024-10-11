@@ -1,5 +1,8 @@
 # Forked Note: Vectorised Torch BP
-This a fork of the below repository, with a vectorised extension of (currently only) the Gaussian BP algorithm. 
+This fork provides a vectorised extension of (currently only) the Gaussian BP algorithm. 
+Parallelised GBP can be computed by ensuring that all vectorised instances are batched in the first dimension. eg. `node_pos.shape = [batch_dim, N_nodes, node_pos]`
+
+See the Loopy GBP section of `notebooks/loopy_bp.py` for example use.
 
 # PyTorch Belief Propagation
 
