@@ -41,13 +41,13 @@ class LinearizedGaussianEnergy(object):
         Inputs:
         - h : Callable, function which evaluates h(x)
         - h_w_grads : Callable, function which evaluates (jac_h(x), h(x))
-        - z : (x_out_dim,) tensor, bias or the mean we want h(x) to have
-        - sigma : (x_out_dim, x_out_dim) tensor, covariance we want h(x) to have
+        - z : (batch_dim, x_out_dim,) tensor, bias or the mean we want h(x) to have
+        - sigma : (batch_dim, x_out_dim, x_out_dim) tensor, covariance we want h(x) to have
         - linear : bool, whether h(x) is linear
         """
         self._grads_w_h = grads_w_h
-        self._z = z
-        self._lambda = torch.linalg.inv(sigma)
+        self._z = z.double()
+        self._lambda = torch.linalg.inv(sigma).double()
         if linear:
             self._x_0 = x_0
             self._energy_eta, self._energy_lambda = self._linearize_energy_fn(x_0)
@@ -226,8 +226,8 @@ class PairwiseGaussianLinearFactor(PairwiseFactor):
         Inputs:
         - h : Callable, function which evaluates h(x)
         - h_w_grads : Callable, function which evaluates (jac_h(x), h(x))
-        - z : (x_out_dim,) tensor, bias or the mean we want h(x) to have
-        - sigma : (x_out_dim, x_out_dim) tensor, covariance we want h(x) to have
+        - z : (batch_dim, x_out_dim) tensor, bias or the mean we want h(x) to have
+        - sigma : (batch_dim, x_out_dim, x_out_dim) tensor, covariance we want h(x) to have
         - linear : bool, whether h(x) is linear
         - alpha : float, scaling of factor
         """

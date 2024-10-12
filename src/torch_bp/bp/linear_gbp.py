@@ -131,11 +131,23 @@ class LinearGaussianBP(BeliefPropagation):
         if pass_messages:
             self.pass_messages()
 
+        # TODO: Crashing due to singular matrix error: Some msg_etas and lambdas are zero matrices..
         node_etas = torch.zeros_like(self.node_means).double()  # required for accurate inversion
         node_lams = torch.zeros_like(self.node_covars).double()
         for node_id, node_cluster in self.factor_graph.node_clusters.items():
-            msg_etas, msg_lambdas = zip(*[self.msg_factor_to_node_db[factor_id, node_id]
-                                          for factor_id in node_cluster.factor_clusters])
+            # Note: Debugging - remove once resolved.
+            for factor_id in node_cluster.factor_clusters:
+                msg_etas, msg_lambdas = self.msg_factor_to_node_db[(factor_id, node_id)]
+                print()
+            try:
+                msg_etas, msg_lambdas = zip(*[self.msg_factor_to_node_db[factor_id, node_id]
+                                            for factor_id in node_cluster.factor_clusters])
+            except:
+                print()
+
+            # Note: Reinstante after fix
+            # msg_etas, msg_lambdas = zip(*[self.msg_factor_to_node_db[factor_id, node_id]
+            #                               for factor_id in node_cluster.factor_clusters])
             node_etas[:, node_id] = torch.stack(msg_etas).sum(dim=0)
             node_lams[:, node_id] = torch.stack(msg_lambdas).sum(dim=0)
 
@@ -318,7 +330,7 @@ class LoopyLinearGaussianBP(LinearGaussianBP):
         """
         for _ in range(num_iters):
             for _ in range(msg_pass_per_iter):
-                # ppass messages
+                # pass messages
                 self.pass_messages()
 
             # update beliefs (needed to evaluate f(x) at next cycle)
@@ -357,6 +369,14 @@ class LoopyLinearGaussianBP(LinearGaussianBP):
         """
         # precompute all factors in graph first
         self._precompute_factors()
+
+        # Note: Debugging node message
+        # for factor_id, factor_cluster in self.factor_graph.factor_clusters.items():
+        #     for node_id in factor_cluster.neighbours:
+        #         res = self._compute_msg_from_node(node_id, factor_id)
+        #
+
+
         # iterate through all factor cluster to find msg to nodes and save messages after all calculations are done
         self.msg_node_to_factor_db = {(node_id, factor_id): self._compute_msg_from_node(node_id, factor_id)
                                       for factor_id, factor_cluster in self.factor_graph.factor_clusters.items()
