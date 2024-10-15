@@ -134,12 +134,14 @@ class LinearGaussianBP(BeliefPropagation):
         node_etas = torch.zeros_like(self.node_means).double()  # required for accurate inversion
         node_lams = torch.zeros_like(self.node_covars).double()
         for node_id, node_cluster in self.factor_graph.node_clusters.items():
+            msg_etas, msg_lambdas = zip(*[self.msg_factor_to_node_db[factor_id, node_id]
+                                          for factor_id in node_cluster.factor_clusters])
+
             node_etas[:, node_id] = torch.stack(msg_etas, dim=1).sum(dim=1)
             node_lams[:, node_id] = torch.stack(msg_lambdas, dim=1).sum(dim=1)
 
         lam_rank = torch.linalg.matrix_rank(node_lams)
         eta_rank = torch.linalg.matrix_rank(node_etas)
-
         self.node_covars = torch.linalg.solve(node_lams, torch.eye(node_lams.shape[-1]).to(node_lams))
         self.node_means = (self.node_covars @ node_etas[..., None])[..., 0]
 
