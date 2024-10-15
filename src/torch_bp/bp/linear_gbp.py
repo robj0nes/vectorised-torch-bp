@@ -131,25 +131,14 @@ class LinearGaussianBP(BeliefPropagation):
         if pass_messages:
             self.pass_messages()
 
-        # TODO: Crashing due to singular matrix error: Some msg_etas and lambdas are zero matrices..
         node_etas = torch.zeros_like(self.node_means).double()  # required for accurate inversion
         node_lams = torch.zeros_like(self.node_covars).double()
         for node_id, node_cluster in self.factor_graph.node_clusters.items():
-            # Note: Debugging - remove once resolved.
-            for factor_id in node_cluster.factor_clusters:
-                msg_etas, msg_lambdas = self.msg_factor_to_node_db[(factor_id, node_id)]
-                print()
-            try:
-                msg_etas, msg_lambdas = zip(*[self.msg_factor_to_node_db[factor_id, node_id]
-                                            for factor_id in node_cluster.factor_clusters])
-            except:
-                print()
+            node_etas[:, node_id] = torch.stack(msg_etas, dim=1).sum(dim=1)
+            node_lams[:, node_id] = torch.stack(msg_lambdas, dim=1).sum(dim=1)
 
-            # Note: Reinstante after fix
-            # msg_etas, msg_lambdas = zip(*[self.msg_factor_to_node_db[factor_id, node_id]
-            #                               for factor_id in node_cluster.factor_clusters])
-            node_etas[:, node_id] = torch.stack(msg_etas).sum(dim=0)
-            node_lams[:, node_id] = torch.stack(msg_lambdas).sum(dim=0)
+        lam_rank = torch.linalg.matrix_rank(node_lams)
+        eta_rank = torch.linalg.matrix_rank(node_etas)
 
         self.node_covars = torch.linalg.solve(node_lams, torch.eye(node_lams.shape[-1]).to(node_lams))
         self.node_means = (self.node_covars @ node_etas[..., None])[..., 0]
@@ -221,14 +210,18 @@ class LinearGaussianBP(BeliefPropagation):
         R_b = torch.eye(x_dim, **self.tensor_kwargs)[
             [i for i in range(front)] + [i for i in range(front + middle, x_dim)]].repeat((batch_dim, 1, 1))
         eta_a, eta_b = (R_a @ f_eta.unsqueeze(-1)).squeeze(-1), (R_b @ f_eta.unsqueeze(-1)).squeeze(-1)
-        lambda_aa, lambda_bb = R_a @ f_lambda @ R_a.transpose(1, 2), R_b @ f_lambda @ R_b.transpose(1, 2)
-        lambda_ab, lambda_ba = R_a @ f_lambda @ R_b.transpose(1, 2), R_b @ f_lambda @ R_a.transpose(1, 2)
+        # Include epsilon value to handle null matrix errors
+        lambda_aa, lambda_bb = R_a @ f_lambda @ R_a.transpose(1, 2) + 0.000001, R_b @ f_lambda @ R_b.transpose(1, 2) + 0.000001
+        lambda_ab, lambda_ba = R_a @ f_lambda @ R_b.transpose(1, 2) + 0.000001, R_b @ f_lambda @ R_a.transpose(1, 2) + 0.000001
 
         # marginalization calculation
-        lin = torch.linalg.solve(lambda_bb.double(), eta_b.double())
-        sub_term = (lambda_ab @ lin.to(f_eta).unsqueeze(-1)).squeeze(-1)
+        lin = torch.linalg.solve(lambda_bb.double(), eta_b.double()).to(f_eta)
+        sub_term = (lambda_ab @ lin.unsqueeze(-1)).squeeze(-1)
         msg_eta = eta_a - sub_term
         msg_lambda = lambda_aa - lambda_ab @ torch.linalg.solve(lambda_bb.double(), lambda_ba.double()).to(f_lambda)
+
+        rank_msg_eta = torch.linalg.matrix_rank(msg_eta)
+        rank_msg_lambda = torch.linalg.matrix_rank(msg_lambda)
 
         return msg_eta, msg_lambda
 
@@ -369,13 +362,6 @@ class LoopyLinearGaussianBP(LinearGaussianBP):
         """
         # precompute all factors in graph first
         self._precompute_factors()
-
-        # Note: Debugging node message
-        # for factor_id, factor_cluster in self.factor_graph.factor_clusters.items():
-        #     for node_id in factor_cluster.neighbours:
-        #         res = self._compute_msg_from_node(node_id, factor_id)
-        #
-
 
         # iterate through all factor cluster to find msg to nodes and save messages after all calculations are done
         self.msg_node_to_factor_db = {(node_id, factor_id): self._compute_msg_from_node(node_id, factor_id)
