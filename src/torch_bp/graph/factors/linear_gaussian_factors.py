@@ -29,7 +29,7 @@ class LinearizedGaussianEnergy(object):
         - x_in_0_dim, ... x_in_N_dim -> dimensions of input to h
         - x_out_dim -> dimensions of output of h (NOT output of this cost)
         - since h is assumed to be linear, the distribution does not change wrt input x,
-            however in actuality the h may not actually be linear, hence we have to relinearize about the new
+            however in actuality the h may not actually be linear, hence we have to re-linearize about the new
             operating point each time x changes
     """
 
@@ -65,13 +65,18 @@ class LinearizedGaussianEnergy(object):
         """
         return self._call_fn(x_0)
 
-    def update_bias(self, new_z: torch.Tensor, new_sigma: Union[None, torch.Tensor] = None):
+    def update_bias(self, new_z: torch.Tensor, new_sigma: Union[None, torch.Tensor] = None, batch_dim=None):
         """
         Updates the bias and sigma of the energy function
         """
-        self._z = new_z
-        if new_sigma is not None:
-            self._lambda = torch.linalg.solve(new_sigma, torch.eye(new_sigma.shape[-1]).to(new_sigma))
+        if batch_dim is None:
+            self._z = new_z
+            if new_sigma is not None:
+                self._lambda = torch.linalg.solve(new_sigma, torch.eye(new_sigma.shape[-1]).to(new_sigma))
+        else:
+            self._z[batch_dim] = new_z
+            if new_sigma is not None:
+                self._lambda[batch_dim] = torch.linalg.solve(new_sigma, torch.eye(new_sigma.shape[-1]).to(new_sigma))
         self._update_internals()
 
     def _linearize_energy_fn(self, x_0: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -97,10 +102,10 @@ class LinearizedGaussianEnergy(object):
         """
         Function to call if h is linear
         - Inputs:
-            - x_0 : (x_in_0_dim+x_in_1_dim+... x_in_N_dim) tensor, linearization point
+            - x_0 : (batch_dim, x_in_0_dim+x_in_1_dim+... x_in_N_dim) tensor, linearization point
         - Returns:
-            - energy_eta : (x_in_0_dim+x_in_1_dim+... x_in_N_dim) tensor
-            - energy_lambda : (x_in_0_dim+x_in_1_dim+... x_in_N_dim, x_in_0_dim+x_in_1_dim+... x_in_N_dim) tensor
+            - energy_eta : (batch_dim, x_in_0_dim+x_in_1_dim+... x_in_N_dim) tensor
+            - energy_lambda : (batch_dim, x_in_0_dim+x_in_1_dim+... x_in_N_dim, x_in_0_dim+x_in_1_dim+... x_in_N_dim) tensor
         """
         return self._energy_eta.clone(), self._energy_lambda.clone()
 
@@ -121,9 +126,10 @@ class LinearizedGaussianEnergy(object):
         """
         self._energy_eta, self._energy_lambda = self._linearize_energy_fn(self._x_0)
 
+    # NOTE (RJ): TBC if required.. atm we are only updating unary (ie. linear) factors
     def _update_internals_nonlinear(self) -> None:
         """
-        Method to update internal stored values after update bias is called for linear functions
+        Method to update internal stored values after update bias is called for non-linear functions
         """
         pass
 
@@ -165,11 +171,11 @@ class NaryGaussianLinearFactor(object):
         energy_eta, energy_lambda = self.energy_fn(torch.cat(means, dim=-1))  # set linearization point to be about mean
         return self.alpha * energy_eta, self.alpha * energy_lambda
 
-    def update_bias(self, new_z: torch.Tensor, new_sigma: Union[None, torch.Tensor] = None):
+    def update_bias(self, new_z: torch.Tensor, new_sigma: Union[None, torch.Tensor] = None, batch_dim=None):
         """
         Updates the bias and sigma of the energy function
         """
-        self.energy_fn.update_bias(new_z, new_sigma)
+        self.energy_fn.update_bias(new_z, new_sigma, batch_dim)
 
 
 class UnaryGaussianLinearFactor(UnaryFactor):
@@ -205,11 +211,11 @@ class UnaryGaussianLinearFactor(UnaryFactor):
         energy_eta, energy_lambda = self.nary_factor(x)
         return self.alpha * energy_eta, self.alpha * energy_lambda
 
-    def update_bias(self, new_z: torch.Tensor, new_sigma: Union[None, torch.Tensor] = None):
+    def update_bias(self, new_z: torch.Tensor, new_sigma: Union[None, torch.Tensor] = None, batch_dim=None):
         """
         Updates the bias and sigma of the energy function
         """
-        self.nary_factor.update_bias(new_z, new_sigma)
+        self.nary_factor.update_bias(new_z, new_sigma, batch_dim)
 
 
 class PairwiseGaussianLinearFactor(PairwiseFactor):

@@ -140,8 +140,6 @@ class LinearGaussianBP(BeliefPropagation):
             node_etas[:, node_id] = torch.stack(msg_etas, dim=1).sum(dim=1)
             node_lams[:, node_id] = torch.stack(msg_lambdas, dim=1).sum(dim=1)
 
-        lam_rank = torch.linalg.matrix_rank(node_lams)
-        eta_rank = torch.linalg.matrix_rank(node_etas)
         self.node_covars = torch.linalg.solve(node_lams, torch.eye(node_lams.shape[-1]).to(node_lams))
         self.node_means = (self.node_covars @ node_etas[..., None])[..., 0]
 
@@ -213,17 +211,16 @@ class LinearGaussianBP(BeliefPropagation):
             [i for i in range(front)] + [i for i in range(front + middle, x_dim)]].repeat((batch_dim, 1, 1))
         eta_a, eta_b = (R_a @ f_eta.unsqueeze(-1)).squeeze(-1), (R_b @ f_eta.unsqueeze(-1)).squeeze(-1)
         # Include epsilon value to handle null matrix errors
-        lambda_aa, lambda_bb = R_a @ f_lambda @ R_a.transpose(1, 2) + 0.000001, R_b @ f_lambda @ R_b.transpose(1, 2) + 0.000001
-        lambda_ab, lambda_ba = R_a @ f_lambda @ R_b.transpose(1, 2) + 0.000001, R_b @ f_lambda @ R_a.transpose(1, 2) + 0.000001
+        lambda_aa, lambda_bb = (R_a @ f_lambda @ R_a.transpose(1, 2) + 0.000001,
+                                R_b @ f_lambda @ R_b.transpose(1, 2) + 0.000001)
+        lambda_ab, lambda_ba = (R_a @ f_lambda @ R_b.transpose(1, 2) + 0.000001,
+                                R_b @ f_lambda @ R_a.transpose(1, 2) + 0.000001)
 
         # marginalization calculation
         lin = torch.linalg.solve(lambda_bb.double(), eta_b.double()).to(f_eta)
         sub_term = (lambda_ab @ lin.unsqueeze(-1)).squeeze(-1)
         msg_eta = eta_a - sub_term
         msg_lambda = lambda_aa - lambda_ab @ torch.linalg.solve(lambda_bb.double(), lambda_ba.double()).to(f_lambda)
-
-        rank_msg_eta = torch.linalg.matrix_rank(msg_eta)
-        rank_msg_lambda = torch.linalg.matrix_rank(msg_lambda)
 
         return msg_eta, msg_lambda
 
